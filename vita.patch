@@ -1,0 +1,818 @@
+diff --git a/games/Septerra Core/SR-Septerra/CLIB.c b/games/Septerra Core/SR-Septerra/CLIB.c
+index f2bd4c1..a64712c 100644
+--- a/games/Septerra Core/SR-Septerra/CLIB.c	
++++ b/games/Septerra Core/SR-Septerra/CLIB.c	
+@@ -44,7 +44,6 @@
+ 
+ #define eprintf(...) fprintf(stderr,__VA_ARGS__)
+ 
+-
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -378,8 +377,12 @@ void sync_c(void)
+ #endif
+ 
+ #if !defined(_WIN32)
++#if defined(VITA)
++    sceIoSync("ux0:", 0);
++#else
+     sync();
+ #endif
++#endif
+ }
+ 
+ 
+diff --git a/games/Septerra Core/SR-Septerra/Game-Config.c b/games/Septerra Core/SR-Septerra/Game-Config.c
+index 259e538..719f336 100644
+--- a/games/Septerra Core/SR-Septerra/Game-Config.c	
++++ b/games/Septerra Core/SR-Septerra/Game-Config.c	
+@@ -35,6 +35,8 @@
+ 
+ #ifdef PANDORA
+ #define CONFIG_FILE "../Septerra.cfg"
++#elif defined(VITA)
++#define CONFIG_FILE "app0:/Septerra.cfg"
+ #else
+ #define CONFIG_FILE "Septerra.cfg"
+ #endif
+diff --git a/games/Septerra Core/SR-Septerra/Game-Main.c b/games/Septerra Core/SR-Septerra/Game-Main.c
+index 82f83af..7456bfe 100644
+--- a/games/Septerra Core/SR-Septerra/Game-Main.c	
++++ b/games/Septerra Core/SR-Septerra/Game-Main.c	
+@@ -22,6 +22,11 @@
+  *
+  */
+ 
++#if defined(__vita__)
++unsigned int _newlib_heap_size_user = 256 * 1024 * 1024;
++#include <unistd.h>
++#endif
++
+ #if (defined(__WIN32__) || defined(__WINDOWS__)) && !defined(_WIN32)
+ #define _WIN32
+ #endif
+@@ -44,9 +49,13 @@
+ #endif
+ #include "WinApi.h"
+ 
++#ifdef VITA
++#include <psp2/sysmodule.h>
++#endif
+ 
+ #define eprintf(...) fprintf(stderr,__VA_ARGS__)
+ 
++SDL_Joystick *joy;
+ 
+ extern uint32_t security_cookie_;
+ extern uint32_t bShowEnemyStatus;
+@@ -158,12 +167,16 @@ void Winapi_InitTicks(void);
+ 
+ int main(int argc, char *argv[])
+ {
++#ifdef VITA
++    chdir("ux0:/data/septerra/");
++    sceSysmoduleLoadModule(SCE_SYSMODULE_IME);
++#endif
+     if (SDL_Init(SDL_INIT_NOPARACHUTE))
+     {
+ #ifdef _WIN32
+         MessageBoxA(NULL, "Error: SDL_Init", "Error", MB_OK | MB_ICONERROR | MB_SYSTEMMODAL);
+ #else
+-        eprintf("Error: SDL_Init");
++        eprintf("Error: SDL_Init: %s", SDL_GetError());
+ #endif
+         exit(1);
+     }
+@@ -180,6 +193,27 @@ int main(int argc, char *argv[])
+     init_sleepmode();
+ #endif
+ 
++    SDL_InitSubSystem(SDL_INIT_JOYSTICK);
++
++    // Check for joystick
++    if( SDL_NumJoysticks() > 0 )
++    {
++        printf("Opening Joystick 0\n");
++        // Open joystick
++        joy = SDL_JoystickOpen(0);
++
++        if(joy)
++        {
++            printf("Opened Joystick 0\n");
++            printf("Name: %s\n", SDL_JoystickName(0));
++            printf("Number of Axes: %d\n", SDL_JoystickNumAxes(joy));
++            printf("Number of Buttons: %d\n", SDL_JoystickNumButtons(joy));
++            printf("Number of Balls: %d\n", SDL_JoystickNumBalls(joy));
++        }
++        else
++            printf("Couldn't open Joystick 0\n");
++    }
++
+     apply_cheats();
+ 
+     prepare_command_line();
+diff --git a/games/Septerra Core/SR-Septerra/Game-SoundEngine.c b/games/Septerra Core/SR-Septerra/Game-SoundEngine.c
+index 6482781..3787897 100644
+--- a/games/Septerra Core/SR-Septerra/Game-SoundEngine.c	
++++ b/games/Septerra Core/SR-Septerra/Game-SoundEngine.c	
+@@ -131,6 +131,35 @@ static void CALLBACK SE_fptc(UINT uTimerID, UINT uMsg, DWORD_PTR dwUser, DWORD_P
+ #else
+ static pthread_t timer_thread_id;
+ 
++#if defined(VITA)
++static void *SE_timer_CB(void *arg)
++{
++    int32_t PipeValue = 3;
++    uint32_t NumberOfBytesWritten;
++    uint64_t start_time;
++    uint64_t end_wait_time;
++
++    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
++
++    start_time = sceKernelGetProcessTimeWide();
++    end_wait_time = start_time + 20000;
++
++    while (1)
++    {
++        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
++        pthread_testcancel();
++        pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
++
++        sceKernelDelayThread(end_wait_time - start_time);
++        end_wait_time = sceKernelGetProcessTimeWide() + 20000;
++
++        WriteFile_c(hWritePipe, &PipeValue, 4, &NumberOfBytesWritten, NULL);
++        start_time = sceKernelGetProcessTimeWide();
++    };
++
++    return NULL;
++}
++#else
+ static void *SE_timer_CB(void *arg)
+ {
+     struct timespec timer_time;
+@@ -169,6 +198,7 @@ static void *SE_timer_CB(void *arg)
+     return NULL;
+ }
+ #endif
++#endif
+ 
+ uint32_t SoundEngine_StartTimer(void)
+ {
+diff --git a/games/Septerra Core/SR-Septerra/QTML.c b/games/Septerra Core/SR-Septerra/QTML.c
+index 45407dd..a72261c 100644
+--- a/games/Septerra Core/SR-Septerra/QTML.c	
++++ b/games/Septerra Core/SR-Septerra/QTML.c	
+@@ -1247,6 +1247,10 @@ int16_t NewMovieFromFile_c (void **theMovie, int16_t resRefNum, int16_t *resId,
+         }
+     }
+ #endif
++#if defined(VITA)
++    // no support for YUV overlays on Vita
++    use_yuv = 0;
++#endif
+ 
+     if (use_yuv)
+     {
+diff --git a/games/Septerra Core/SR-Septerra/SConstruct b/games/Septerra Core/SR-Septerra/SConstruct
+index ee3c6dc..df00b7e 100644
+--- a/games/Septerra Core/SR-Septerra/SConstruct	
++++ b/games/Septerra Core/SR-Septerra/SConstruct	
+@@ -29,7 +29,7 @@ vars.Add(EnumVariable('debug', 'Set debug level (0 = release version)', '0',
+                                  allowed_values=('0', '1', '2'),
+                                  ignorecase=2))
+ vars.Add(EnumVariable('device', 'Set target device', 'none',
+-                                 allowed_values=('none', 'pc-linux', 'arm-linux-llasm', 'pc-linux-llasm', 'pandora-llasm'),
++                                 allowed_values=('none', 'pc-linux', 'arm-linux-llasm', 'pc-linux-llasm', 'pandora-llasm', 'vita-llasm'),
+                                  ignorecase=2))
+ env = Environment(variables = vars)
+ 
+@@ -90,6 +90,21 @@ elif device == 'pandora':
+                       ENV          = {'PATH' : compiler_path + 'bin:' + os.environ['PATH']}
+                      )
+     llvm_params = '-mtriple=armv7a-unknown-linux-eabi -mcpu=cortex-a8'
++elif device == 'vita':
++    compiler_path = os.environ['VITASDK'] + '/arm-vita-eabi/'
++    compiler_prefix = 'arm-vita-eabi-'
++
++    env = Environment(CC           = compiler_prefix + 'gcc',
++                      CCFLAGS      = '-O3 -Wall -DVITA -march=armv7-a -mtune=cortex-a8 -mfpu=neon -mfloat-abi=hard -Wl,-q',
++                      CPPPATH      = [compiler_path + 'include', compiler_path + 'include/SDL'],
++                      INCPREFIX    = '-I',
++                      LIBPATH      = [compiler_path + 'lib'],
++                      LIBDIRPREFIX = '-L',
++                      LINKFLAGS    = '-Wl,-z,noexecstack -Wl,-q -Wl,--whole-archive -lpthread -Wl,--no-whole-archive',
++                      LIBS         = ['SDL', 'quicktime', 'avcodec', 'avformat', 'avdevice','avfilter', 'avutil', 'mpg123', 'mp3lame','swresample','swscale', 'z', 'm', 'SceGxm_stub', 'SceDisplay_stub', 'SceCtrl_stub', 'SceAppMgr_stub', 'SceAudio_stub', 'SceSysmodule_stub', 'SceIofilemgr_stub', 'SceCommonDialog_stub', 'SceTouch_stub', 'SceHid_stub', 'SceMotion_stub', 'ScePower_stub', 'SceProcessmgr_stub', 'SceKernelThreadMgr_stub', 'SceIme_stub' ],
++                      ENV          = {'PATH' : compiler_path + 'bin:' + os.environ['PATH']}
++                     )
++    llvm_params = '-mtriple=armv-vita-eabi -mcpu=cortex-a8 --float-abi=hard'
+ 
+ def get_compiler_version(compiler_path, env_path):
+     process = subprocess.Popen([compiler_path, '-dumpversion'], stdout=subprocess.PIPE, env={"PATH": env_path})
+@@ -123,7 +138,8 @@ if not clean:
+ 
+ # debug settings
+ if debug <= 0:
+-    env.Append(LINKFLAGS = ' -s')
++    if device != 'vita':
++        env.Append(LINKFLAGS = ' -s')
+ elif debug == 1:
+     env.Append(CCFLAGS = ' -g')
+ else:
+@@ -141,4 +157,28 @@ else:
+     arch_objs = SConscript('x86/SConscript', exports='device env')
+ 
+ 
+-env.Program('SR-Septerra', Glob('*.c') + arch_objs)
++main = env.Program('SR-Septerra', Glob('*.c') + arch_objs)
++
++if device == 'vita':
++  velf = env.Command( target = "sc.velf",
++                source = "./SR-Septerra",
++                action = "vita-elf-create $SOURCE $TARGET" )
++  Depends( velf, main )
++
++  sfo = env.Command( target = "param.sfo",
++                source = "./SR-Septerra",
++                action = "vita-mksfoex -d ATTRIBUTE2=12 -s TITLE_ID=\"SCLC00001\" \"Septerra Core\" $TARGET" )
++  Depends( sfo, main )
++
++  eboot = env.Command( target = "eboot.bin",
++                source = "sc.velf",
++                action = "vita-make-fself sc.velf $TARGET" )
++
++  Depends( eboot, velf )
++
++  vpk = env.Command( target = "sc.vpk",
++                source = "eboot.bin",
++                action = "vita-pack-vpk -s param.sfo -b eboot.bin --add sce_sys=sce_sys --add Septerra.cfg=Septerra.cfg $TARGET" )
++  Depends( vpk, [eboot, sfo] )
++
++  AlwaysBuild( vpk )
+\ No newline at end of file
+diff --git a/games/Septerra Core/SR-Septerra/Septerra.cfg b/games/Septerra Core/SR-Septerra/Septerra.cfg
+new file mode 100644
+index 0000000..205288d
+--- /dev/null
++++ b/games/Septerra Core/SR-Septerra/Septerra.cfg	
+@@ -0,0 +1,83 @@
++# Intro settings
++# --------------
++#
++# Intro_Play=yes/no - play intro movies ? - default value is yes
++
++Intro_Play=yes
++
++
++# Display settings
++# ----------------
++#
++# Display_Mode=window/desktop/fullscreen - window with defined size / fullscreen at current resolution / fullscreen with defined resolution
++# Display_VSync=on/off - enable/disable vsync - default value is off
++# Display_Width=x - horizontal size - default value is 640
++# Display_Height=y - vertical size - default value is 480
++# Display_Resizable=yes/no - resizable window ? - default value is no
++# Display_Scaling=basic/basicnb - image scaling. Basic means that bilinear filtering is used. Basicnb means without bilinear filtering (= nearest neighbour filtering).
++# Display_IntegerScaling=yes/no - integer scaling ? (scaling only by integer factor) - default value is no
++# Display_DelayAfterFlip=0-20 - add delay in miliseconds after image flip - default value is 0
++
++Display_Mode=fullscreen
++Display_VSync=off
++Display_Width=960
++Display_Height=544
++Display_Resizable=no
++Display_Scaling=basicnb
++Display_IntegerScaling=no
++Display_DelayAfterFlip=0
++
++
++# Audio settings
++# --------------
++#
++# Audio_BufferSize=x - audio buffer size (in samples) - 0 = automatic - must be a power of 2 (e.g. 256, 512, 1024, 2048, 4096, 8192)
++
++Audio_BufferSize = 0
++
++
++# Command line parameters
++# -----------------------
++#
++# Option_DefaultMovement=walk/run - default movement speed - default value is walk
++# Option_MovieResolution=doubled/native - movie resolution - default value is doubled
++# Option_MoviesPlay=yes/no - play movies ? - default value is yes
++# Option_PointSoundsPlay=yes/no - play point sounds ? - default value is yes
++# Option_SoundsPlay=yes/no - play sounds ? - default value is yes
++
++Option_DefaultMovement=walk
++Option_MovieResolution=doubled
++Option_MoviesPlay=yes
++Option_PointSoundsPlay=yes
++Option_SoundsPlay=yes
++
++
++# Cheats
++# ------
++#
++# Cheat_ENEMIES=enabled/disabled - show enemy status ? - default value is disabled
++# Cheat_SIGHT=enabled/disabled - show enemy line of sight ? - default value is disabled
++# Cheat_HIDETEXT=enabled/disabled - hide texts ? - default value is disabled
++# Cheat_FPS=enabled/disabled - show frames per second ? - default value is disabled
++
++Cheat_ENEMIES=disabled
++Cheat_SIGHT=disabled
++Cheat_HIDETEXT=disabled
++Cheat_FPS=disabled
++
++
++# Keys settings
++# -------------
++#
++# Keys_WSAD=WSAD/ArrowKeys - use WSAD keys as WSAD keys or as arrow keys - default value is WSAD
++# Keys_ArrowKeys=ArrowKeys/WSAD - use arrow keys as arrow keys or as WSAD keys - default value is ArrowKeys
++
++Keys_WSAD=WSAD
++Keys_ArrowKeys=ArrowKeys
++
++
++# CPU settings
++# ------------
++#
++# CPU_SleepMode=standard/reduced/nosleep - CPU sleep mode (to prevent Septerra Core from consuming too much CPU)
++CPU_SleepMode=reduced
+\ No newline at end of file
+diff --git a/games/Septerra Core/SR-Septerra/WinApi-ddraw.c b/games/Septerra Core/SR-Septerra/WinApi-ddraw.c
+index f43ab0b..3d86845 100644
+--- a/games/Septerra Core/SR-Septerra/WinApi-ddraw.c	
++++ b/games/Septerra Core/SR-Septerra/WinApi-ddraw.c	
+@@ -913,8 +913,11 @@ uint32_t IDirectDraw_SetDisplayMode_c(struct IDirectDraw_c *lpThis, uint32_t dwW
+         return DDERR_UNSUPPORTEDMODE;
+     }
+ #else
+-#ifdef PANDORA
++#if defined(PANDORA) ||  defined(VITA)
+     lpThis->Screen = SDL_SetVideoMode(dwWidth, dwHeight, dwBPP, SDL_HWSURFACE | SDL_DOUBLEBUF | SDL_FULLSCREEN);
++#if defined(VITA)
++    SDL_VITA_SetVideoModeScaling(118, 0, 724, 544);
++#endif
+ #else
+     lpThis->Screen = SDL_SetVideoMode(dwWidth, dwHeight, dwBPP, SDL_HWSURFACE);
+ #endif
+diff --git a/games/Septerra Core/SR-Septerra/WinApi-kernel32.c b/games/Septerra Core/SR-Septerra/WinApi-kernel32.c
+index ce0f87c..d2ce768 100644
+--- a/games/Septerra Core/SR-Septerra/WinApi-kernel32.c	
++++ b/games/Septerra Core/SR-Septerra/WinApi-kernel32.c	
+@@ -67,7 +67,7 @@ static struct timeval start_time;
+ #else
+ static struct timespec start_time;
+ 
+-#if defined(CLOCK_MONOTONIC_RAW)
++#if defined(CLOCK_MONOTONIC_RAW) && !defined(VITA)
+ static clockid_t monotonic_clock_id;
+ 
+ #define MONOTONIC_CLOCK_TYPE monotonic_clock_id
+@@ -174,7 +174,7 @@ void Winapi_InitTicks(void)
+ #if (USE_OLD_GETTIME)
+     gettimeofday(&start_time, NULL);
+ #else
+-#if defined(CLOCK_MONOTONIC_RAW)
++#if defined(CLOCK_MONOTONIC_RAW) && !defined(VITA)
+     if (clock_gettime(CLOCK_MONOTONIC_RAW, &start_time))
+     {
+         monotonic_clock_id = CLOCK_MONOTONIC;
+@@ -274,7 +274,9 @@ static void Conv_find(win32_find_data *buffer, struct stat *filestat, const char
+ 
+     // file's creation time and date
+     dt_result = ((int64_t) filestat->st_ctime) * 10000000;
++#ifndef VITA
+     dt_result += (filestat->st_ctim.tv_nsec / 100) & ~1; // set least significant bit to zero to indicate system time
++#endif
+     dt_result += EPOCH_TIME;
+ 
+     buffer->ftCreationTime.dwLowDateTime = (uint32_t) dt_result;
+@@ -282,7 +284,9 @@ static void Conv_find(win32_find_data *buffer, struct stat *filestat, const char
+ 
+     // file's last access time and date
+     dt_result = ((int64_t) filestat->st_atime) * 10000000;
++#ifndef VITA
+     dt_result += (filestat->st_atim.tv_nsec / 100) & ~1; // set least significant bit to zero to indicate system time
++#endif
+     dt_result += EPOCH_TIME;
+ 
+     buffer->ftLastAccessTime.dwLowDateTime = (uint32_t) dt_result;
+@@ -290,7 +294,9 @@ static void Conv_find(win32_find_data *buffer, struct stat *filestat, const char
+ 
+     // file's modification time and date
+     dt_result = ((int64_t) filestat->st_mtime) * 10000000;
++#ifndef VITA
+     dt_result += (filestat->st_mtim.tv_nsec / 100) & ~1; // set least significant bit to zero to indicate system time
++#endif
+     dt_result += EPOCH_TIME;
+ 
+     buffer->ftLastWriteTime.dwLowDateTime = (uint32_t) dt_result;
+@@ -1869,6 +1875,8 @@ void Sleep_c(uint32_t cMilliseconds)
+ 
+ #ifdef _WIN32
+     Sleep(cMilliseconds);
++#elif defined(VITA)
++    sceKernelDelayThread(cMilliseconds);
+ #else
+     struct timespec _tp, rem;
+     int ret;
+diff --git a/games/Septerra Core/SR-Septerra/WinApi-user32.c b/games/Septerra Core/SR-Septerra/WinApi-user32.c
+index 6169e4d..23fa7b4 100644
+--- a/games/Septerra Core/SR-Septerra/WinApi-user32.c	
++++ b/games/Septerra Core/SR-Septerra/WinApi-user32.c	
+@@ -47,8 +47,11 @@
+ unsigned int Winapi_GetTicks(void);
+ #endif
+ 
+-#define eprintf(...) fprintf(stderr,__VA_ARGS__)
++#ifdef VITA
++#include <psp2/libime.h>
++#endif
+ 
++#define eprintf(...) fprintf(stderr,__VA_ARGS__)
+ 
+ #ifndef _WIN32
+ #define SM_CXSCREEN 0
+@@ -245,6 +248,8 @@ static int mouse_last_x[3], mouse_last_y[3], mouse_current_x[3], mouse_current_y
+ static int mouse_last_peep[3];
+ // doubleclick detection - END
+ 
++extern SDL_Joystick* joy;
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -334,10 +339,88 @@ void init_sleepmode(void)
+ }
+ #endif
+ 
++static int l_pressed = 0;
++static int r_pressed = 0;
++static int u_pressed = 0;
++static int d_pressed = 0;
++static int shift_pressed = 0;
++
++#ifdef VITA
++#if !defined(SCE_IME_LANGUAGE_ENGLISH_US)
++#define SCE_IME_LANGUAGE_ENGLISH_US SCE_IME_LANGUAGE_ENGLISH
++#endif
++
++SceWChar16 libime_out[SCE_IME_MAX_PREEDIT_LENGTH + SCE_IME_MAX_TEXT_LENGTH + 1];
++static char libime_initval[8] = { 1 };
++SceImeCaret caret_rev;
++int ime_active = 0;
++
++void VITA_ImeEventHandler(void *arg, const SceImeEventData *e)
++{
++    switch (e->id) {
++        case SCE_IME_EVENT_UPDATE_TEXT:
++            if (e->param.text.caretIndex == 0)
++            {
++                SDL_Event nevent;
++                nevent.type = SDL_KEYDOWN;
++                nevent.key.keysym.sym = SDLK_BACKSPACE;
++                nevent.key.keysym.mod = KMOD_NONE;
++                SDL_PushEvent(&nevent);
++
++                nevent.type = SDL_KEYUP;
++                nevent.key.keysym.sym = SDLK_BACKSPACE;
++                nevent.key.keysym.mod = KMOD_NONE;
++                SDL_PushEvent(&nevent);
++                sceImeSetText((SceWChar16 *)libime_initval, 4);
++            }
++            else
++            {
++                uint16_t lower = sceClibTolower(*(SceWChar16 *)&libime_out[1]);
++                if (lower > 0)
++                {
++                    SDL_Event nevent;
++                    nevent.type = SDL_KEYDOWN;
++                    nevent.key.keysym.sym = lower;
++                    nevent.key.keysym.mod = KMOD_NONE;
++                    SDL_PushEvent(&nevent);
++                }
++
++                SDL_memset(&caret_rev, 0, sizeof(SceImeCaret));
++                SDL_memset(libime_out, 0, ((SCE_IME_MAX_PREEDIT_LENGTH + SCE_IME_MAX_TEXT_LENGTH + 1) * sizeof(SceWChar16)));
++                caret_rev.index = 1;
++                sceImeSetCaret(&caret_rev);
++                sceImeSetText((SceWChar16 *)libime_initval, 4);
++            }
++            break;
++        case SCE_IME_EVENT_PRESS_ENTER:
++        {
++            SDL_Event nevent;
++            nevent.type = SDL_KEYDOWN;
++            nevent.key.keysym.sym = SDLK_RETURN;
++            nevent.key.keysym.mod = KMOD_NONE;
++            SDL_PushEvent(&nevent);
++
++            nevent.type = SDL_KEYUP;
++            nevent.key.keysym.sym = SDLK_RETURN;
++            nevent.key.keysym.mod = KMOD_NONE;
++            SDL_PushEvent(&nevent);
++            break;
++        }
++        case SCE_IME_EVENT_PRESS_CLOSE:
++            sceImeClose();
++            ime_active = 0;
++            break;
++    }
++}
++
++
++#endif
++
+ static int find_event(SDL_Event *event, int remove, int wait)
+ {
+     int pump_events;
+-
++    if (ime_active)
++        sceImeUpdate();
+     pump_events = 1;
+ 
+     while (1)
+@@ -377,12 +460,13 @@ static int find_event(SDL_Event *event, int remove, int wait)
+                     {
+                         Sleep(1);
+                     }
++#elif defined(VITA)
++//                    sceKernelDelayThread((CPU_SleepMode == 0)?1000:500);
+ #else
+                     struct timespec _tp;
+ 
+                     _tp.tv_sec = 0;
+                     _tp.tv_nsec = (CPU_SleepMode == 0)?1000000:500000;
+-
+                     nanosleep(&_tp, NULL);
+ #endif
+                 }
+@@ -476,7 +560,7 @@ static int find_event(SDL_Event *event, int remove, int wait)
+             {
+                 if (event->button.state == SDL_PRESSED)
+                 {
+-#ifdef PANDORA
++#if defined(PANDORA)
+                     if (keyboard_mods & KMOD_RSHIFT) // L button on Pandora
+                     {
+                         event->button.button = SDL_BUTTON_RIGHT;
+@@ -554,6 +638,160 @@ static int find_event(SDL_Event *event, int remove, int wait)
+ 
+         case SDL_JOYAXISMOTION:
+             // joystick axis motion event
++            switch (event->jaxis.axis)
++            {
++                case 0:
++                {
++                    if (event->jaxis.value > 10000 && !r_pressed)
++                    {
++                        SDL_Event nevent;
++                        if (!shift_pressed)
++                        {
++                            nevent.type = SDL_KEYDOWN;
++                            nevent.key.keysym.sym = SDLK_LSHIFT;
++                            nevent.key.keysym.mod = KMOD_LSHIFT;
++//                            SDL_PushEvent(&nevent);
++                            shift_pressed = 1;
++                        }
++
++                        nevent.type = SDL_KEYDOWN;
++                        nevent.key.keysym.sym = SDLK_RIGHT;
++                        nevent.key.keysym.mod = KMOD_LSHIFT;
++                        SDL_PushEvent(&nevent);
++
++                        r_pressed = 1;
++                    }
++                    else if (event->jaxis.value < -10000 && !l_pressed)
++                    {
++                        SDL_Event nevent;
++                        if (!shift_pressed)
++                        {
++                            nevent.type = SDL_KEYDOWN;
++                            nevent.key.keysym.sym = SDLK_LSHIFT;
++                            nevent.key.keysym.mod = KMOD_LSHIFT;
++//                            SDL_PushEvent(&nevent);
++                            shift_pressed = 1;
++                        }
++
++                        nevent.type = SDL_KEYDOWN;
++                        nevent.key.keysym.sym = SDLK_LEFT;
++                        nevent.key.keysym.mod = KMOD_LSHIFT;
++                        SDL_PushEvent(&nevent);
++
++                        l_pressed = 1;
++                    }
++                    else if (event->jaxis.value <= 10000 && r_pressed)
++                    {
++                        SDL_Event nevent;
++
++                        nevent.type = SDL_KEYUP;
++                        nevent.key.keysym.sym = SDLK_RIGHT;
++                        nevent.key.keysym.mod = KMOD_LSHIFT;
++                        SDL_PushEvent(&nevent);
++
++                        r_pressed = 0;
++                    }
++                    else if (event->jaxis.value >= -10000 && l_pressed)
++                    {
++                        SDL_Event nevent;
++
++                        nevent.type = SDL_KEYUP;
++                        nevent.key.keysym.sym = SDLK_LEFT;
++                        nevent.key.keysym.mod = KMOD_LSHIFT;
++                        SDL_PushEvent(&nevent);
++
++                        l_pressed = 0;
++                    }
++                }
++                break;
++                case 1:
++                {
++                    if (event->jaxis.value < -10000 && !u_pressed)
++                    {
++                        // send lshift, send dir
++                        SDL_Event nevent;
++                        if (!shift_pressed)
++                        {
++                            nevent.type = SDL_KEYDOWN;
++                            nevent.key.keysym.sym = SDLK_LSHIFT;
++                            nevent.key.keysym.mod = KMOD_LSHIFT;
++//                            SDL_PushEvent(&nevent);
++                            shift_pressed = 1;
++                        }
++
++                        nevent.type = SDL_KEYDOWN;
++                        nevent.key.keysym.sym = SDLK_UP;
++                        nevent.key.keysym.mod = KMOD_LSHIFT;
++                        SDL_PushEvent(&nevent);
++
++                        u_pressed = 1;
++                    }
++                    else if (event->jaxis.value > 10000 && !d_pressed)
++                    {
++                        SDL_Event nevent;
++                        if (!shift_pressed)
++                        {
++                            nevent.type = SDL_KEYDOWN;
++                            nevent.key.keysym.sym = SDLK_LSHIFT;
++                            nevent.key.keysym.mod = KMOD_LSHIFT;
++//                            SDL_PushEvent(&nevent);
++                            shift_pressed = 1;
++                        }
++
++                        nevent.type = SDL_KEYDOWN;
++                        nevent.key.keysym.sym = SDLK_DOWN;
++                        nevent.key.keysym.mod = KMOD_LSHIFT;
++                        SDL_PushEvent(&nevent);
++
++                        d_pressed = 1;
++                    }
++                    else if (event->jaxis.value >= -10000 && u_pressed)
++                    {
++                        SDL_Event nevent;
++
++                        nevent.type = SDL_KEYUP;
++                        nevent.key.keysym.sym = SDLK_UP;
++                        nevent.key.keysym.mod = KMOD_LSHIFT;
++                        SDL_PushEvent(&nevent);
++
++                        u_pressed = 0;
++                    }
++                    else if (event->jaxis.value <= 10000 && d_pressed)
++                    {
++                        SDL_Event nevent;
++
++                        nevent.type = SDL_KEYUP;
++                        nevent.key.keysym.sym = SDLK_DOWN;
++                        nevent.key.keysym.mod = KMOD_LSHIFT;
++                        SDL_PushEvent(&nevent);
++
++                        d_pressed = 0;
++                    }
++
++                    int x_move = SDL_JoystickGetAxis(joy, 0);
++                    int y_move = SDL_JoystickGetAxis(joy, 1);
++                    if (x_move <= 10000 && x_move >= -10000 && y_move <= 10000 && y_move >= -10000 && shift_pressed)
++                    {
++                        SDL_Event nevent;
++                        nevent.type = SDL_KEYUP;
++                        nevent.key.keysym.sym = SDLK_LSHIFT;
++                        nevent.key.keysym.mod = KMOD_NONE;
++                        SDL_PushEvent(&nevent);
++                        shift_pressed = 0;
++                    }
++
++                }
++                break;
++                case 2:
++                case 3:
++                {
++                    Sint16 x_move, y_move;
++                    x_move = SDL_JoystickGetAxis(joy, 2);
++                    y_move = SDL_JoystickGetAxis(joy, 3);
++                    SDL_WarpMouse(mouse_x + x_move / 1800, mouse_y + y_move / 1800);
++                }
++                break;
++            }
+             break;
+ 
+         case SDL_JOYBALLMOTION:
+@@ -566,9 +804,94 @@ static int find_event(SDL_Event *event, int remove, int wait)
+ 
+         case SDL_JOYBUTTONDOWN:
+         case SDL_JOYBUTTONUP:
++        {
+             // joystick button event
++            if (event->type == SDL_JOYBUTTONDOWN && SDL_JoystickGetButton(joy, 5) && event->jbutton.button == 2) // R1 + cross
++            {
++                if (!ime_active)
++                {
++                    sceClibPrintf("showing IME\n");
++                    SceUInt32 libime_work[SCE_IME_WORK_BUFFER_SIZE / sizeof(SceInt32)];
++                    SceImeParam param;
++
++                    sceImeParamInit(&param);
++
++                    SDL_memset(libime_out, 0, ((SCE_IME_MAX_PREEDIT_LENGTH + SCE_IME_MAX_TEXT_LENGTH + 1) * sizeof(SceWChar16)));
++
++                    param.supportedLanguages = SCE_IME_LANGUAGE_ENGLISH_US;
++                    param.languagesForced = SCE_FALSE;
++                    param.type = SCE_IME_TYPE_BASIC_LATIN;
++                    param.option = SCE_IME_OPTION_NO_ASSISTANCE;
++                    param.inputTextBuffer = libime_out;
++                    param.maxTextLength = SCE_IME_MAX_TEXT_LENGTH;
++                    param.handler = VITA_ImeEventHandler;
++                    param.filter = NULL;
++                    param.initialText = (SceWChar16 *)libime_initval;
++                    param.arg = NULL;
++                    param.work = libime_work;
++
++                    int res = sceImeOpen(&param);
++                    if (res < 0) {
++                        sceClibPrintf("Failed to init IME\n");
++                    }
++                    ime_active = 1;
++                }
++            }
++            else
++            {
++                SDL_Event nevent;
++                nevent.type = (event->type == SDL_JOYBUTTONDOWN) ? SDL_KEYDOWN : SDL_KEYUP;
++                switch (event->jbutton.button)
++                {
++                    case 0: // triangle
++                        nevent.key.keysym.sym = SDLK_a;
++                        break;
++                    case 1: // circle
++                        nevent.key.keysym.sym = SDLK_z;
++                        break;
++                    case 2: // cross
++                        nevent.key.keysym.sym = SDLK_RETURN;
++                        break;
++                    case 3: // square
++                        nevent.key.keysym.sym = SDLK_q;
++                        break;
++                    case 4: // L1
++                        nevent.type = (event->type == SDL_JOYBUTTONDOWN) ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
++                        nevent.button.button = SDL_BUTTON_LEFT;
++                        nevent.button.state = (event->type == SDL_JOYBUTTONDOWN) ? SDL_PRESSED : SDL_RELEASED;
++                        nevent.button.x = mouse_x;
++                        nevent.button.y = mouse_y;
++                        break;
++                    case 5: // R1
++                        nevent.type = (event->type == SDL_JOYBUTTONDOWN) ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
++                        nevent.button.button = SDL_BUTTON_RIGHT;
++                        nevent.button.state = (event->type == SDL_JOYBUTTONDOWN) ? SDL_PRESSED : SDL_RELEASED;
++                        nevent.button.x = mouse_x;
++                        nevent.button.y = mouse_y;
++                        break;
++                    case 6: // down
++                        nevent.key.keysym.sym = SDLK_DOWN;
++                        break;
++                    case 7: // left
++                        nevent.key.keysym.sym = SDLK_LEFT;
++                        break;
++                    case 8: // up
++                        nevent.key.keysym.sym = SDLK_UP;
++                        break;
++                    case 9: // right
++                        nevent.key.keysym.sym = SDLK_RIGHT;
++                        break;
++                    case 10: // select
++                        nevent.key.keysym.sym = SDLK_TAB;
++                        break;
++                    case 11: // start
++                        nevent.key.keysym.sym = SDLK_ESCAPE;
++                        break;
++                }
++                SDL_PushEvent(&nevent);
++            }
+             break;
+-
++        }
+         case SDL_QUIT:
+             keep_event = 1;
+             break;
