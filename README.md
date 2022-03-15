@@ -8,6 +8,7 @@ That means it's a [statically recompiled](https://en.wikipedia.org/wiki/Binary_t
 
 ## Running
 
+* Install [fdfix](https://github.com/TheOfficialFloW/FdFix)
 * Instal latest vpk from [releases](https://github.com/isage/septerra-core-vita/releases)
 * Copy data from your legally obtained GOG copy of the game into `ux0:/data/septerra/`
 
