@@ -14,7 +14,7 @@ That means it's a [statically recompiled](https://en.wikipedia.org/wiki/Binary_t
 * Note:  
   if you're using original non-GOG release ( or any other that don't have m1.avi-m9.avi, etc.)
   * install quicktime 4 (comes with original release)
-  * download [unofficial Timesplip patch](http://timeslip.users.sourceforge.net/current/sc_patch.exe) and run it
+  * download [unofficial Timesplip patch](http://timeslip.users.sourceforge.net/current/sc_patch.exe) and run it (works under wine too) (if you get "transcoding failed" - you didn't install quicktime properly)
   * copy .avi files, but don't copy .DB files with same name
 
 ![Controls](https://raw.githubusercontent.com/isage/septerra-core-vita/master/sce_sys/manual/001.png)
