@@ -10,14 +10,11 @@ That means it's a [statically recompiled](https://en.wikipedia.org/wiki/Binary_t
 
 * Install [fdfix](https://github.com/TheOfficialFloW/FdFix)
 * Instal latest vpk from [releases](https://github.com/isage/septerra-core-vita/releases)
-* Copy data from your legally obtained GOG copy of the game into `ux0:/data/septerra/`
-* Note:  
-  if you're using original non-GOG release ( or any other that don't have m1.avi-m9.avi, etc.)
-  * install quicktime 4 (comes with original release)
-  * download [unofficial Timesplip patch](http://timeslip.users.sourceforge.net/current/sc_patch.exe) and run it (works under wine too) (if you get "transcoding failed" - you didn't install quicktime properly)
-  * copy .avi files, but don't copy .DB files with same name
+* Copy data from your legally obtained copy of the game into `ux0:/data/septerra/`
+* If you want stretched fullscreen: create file with the name `fullscreen` inside `ux0:/data/septerra/`
 
 ![Controls](https://raw.githubusercontent.com/isage/septerra-core-vita/master/sce_sys/manual/001.png)
+![Controls2](https://raw.githubusercontent.com/isage/septerra-core-vita/master/sce_sys/manual/002.png)
 
 ## Building
 
