@@ -19,6 +19,15 @@ That means it's a [statically recompiled](https://en.wikipedia.org/wiki/Binary_t
 ## Building
 
 Yeah, good luck.
+But seriously:
+1. install [libquicktime](https://github.com/isage/libquicktime-vita)
+2. clone https://github.com/M-HT/SR and apply patch. copy sce_sys to `games/Septerra Core/SR-Septerra`
+3. build llasm and copy somewhere in the PATH
+4. build SRW with scons, copy SRW.exe to `SRW-games/Septerra Core/SRW`
+5. copy your Septerra104.exe to same dir. run build-llasm.sh
+6. copy Septerra.llasm, and seg*.llinc files into `games/Septerra Core/SR-Septerra/llasm`
+7. run `scons device=vita-llasm`
+that should produce both eboot.bin and sc.vpk
 
 ## Thanks
 
